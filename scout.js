@@ -205,6 +205,14 @@ async function apiRequest(url) {
             url: url
         };
 
+        console.log(`[API Error] Status: ${response.status} - ${response.statusText}`);
+        console.log(`[API Error] URL: ${url}`);
+        console.log(`[API Error] API Key present: ${!!CONFIG.apiKey}, starts with: ${CONFIG.apiKey ? CONFIG.apiKey.substring(0, 10) : 'none'}`);
+
+        if (response.status === 403) {
+            throw new Error('API Key invalid or expired. Please get a new key from developer.riotgames.com');
+        }
+
         if (response.status === 429) {
             console.warn('\n\n⚠️  Rate limited! Waiting 2 minutes...');
 

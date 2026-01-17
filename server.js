@@ -8,6 +8,8 @@ const { scoutPlayers, CONFIG, fromTotalLP, playerCache } = require('./scout.js')
 CONFIG.apiKey = process.env.RIOT_API_KEY || '';
 if (!CONFIG.apiKey) {
     console.warn('Warning: RIOT_API_KEY not set in environment variables');
+} else {
+    console.log('API key loaded:', CONFIG.apiKey.substring(0, 10) + '...');
 }
 
 // Port from command line arg or environment variable, default 3000

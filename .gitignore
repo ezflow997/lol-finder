@@ -32,3 +32,4 @@ saved/
 
 # Build output
 dist/
+index.dev.html

@@ -9,6 +9,13 @@ async function build() {
     const htmlPath = path.join(__dirname, 'index.html');
     const html = fs.readFileSync(htmlPath, 'utf8');
 
+    // Backup original
+    const backupPath = path.join(__dirname, 'index.dev.html');
+    if (!fs.existsSync(backupPath)) {
+        fs.copyFileSync(htmlPath, backupPath);
+        console.log('Backed up original to index.dev.html');
+    }
+
     // Minify HTML with inline JS and CSS
     const minified = await minify(html, {
         collapseWhitespace: true,
@@ -20,7 +27,7 @@ async function build() {
         minifyCSS: true,
         minifyJS: {
             compress: {
-                drop_console: false, // Keep console for debugging
+                drop_console: false,
                 dead_code: true,
                 drop_debugger: true,
                 evaluate: true,
@@ -48,33 +55,8 @@ async function build() {
         }
     });
 
-    // Create dist directory
-    const distDir = path.join(__dirname, 'dist');
-    if (!fs.existsSync(distDir)) {
-        fs.mkdirSync(distDir);
-    }
-
-    // Write minified HTML
-    const outputPath = path.join(distDir, 'index.html');
-    fs.writeFileSync(outputPath, minified);
-
-    // Copy server files to dist
-    fs.copyFileSync(
-        path.join(__dirname, 'server.js'),
-        path.join(distDir, 'server.js')
-    );
-    fs.copyFileSync(
-        path.join(__dirname, 'scout.js'),
-        path.join(distDir, 'scout.js')
-    );
-    fs.copyFileSync(
-        path.join(__dirname, 'package.json'),
-        path.join(distDir, 'package.json')
-    );
-    fs.copyFileSync(
-        path.join(__dirname, 'vercel.json'),
-        path.join(distDir, 'vercel.json')
-    );
+    // Overwrite index.html with minified version
+    fs.writeFileSync(htmlPath, minified);
 
     // Stats
     const originalSize = Buffer.byteLength(html, 'utf8');
@@ -84,8 +66,8 @@ async function build() {
     console.log(`Original:  ${(originalSize / 1024).toFixed(1)} KB`);
     console.log(`Minified:  ${(minifiedSize / 1024).toFixed(1)} KB`);
     console.log(`Savings:   ${savings}%\n`);
-    console.log(`Output written to: ${distDir}`);
-    console.log('\nTo deploy, push the dist/ folder to Vercel or run from dist/');
+    console.log('index.html has been minified in place.');
+    console.log('Original backed up to index.dev.html');
 }
 
 build().catch(err => {

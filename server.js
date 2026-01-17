@@ -17,6 +17,13 @@ const PORT = process.argv[2] || process.env.PORT || 3000;
 
 // Store active SSE connections
 let sseResponse = null;
+let searchAborted = false;
+
+// Function to check if search should be aborted
+function isSearchAborted() {
+    return searchAborted;
+}
+global.isSearchAborted = isSearchAborted;
 
 // Override console.log to send to SSE
 const originalLog = console.log;
@@ -97,6 +104,13 @@ async function handleRequest(req, res) {
         }
 
         sseResponse = res;
+        searchAborted = false; // Reset abort flag for new search
+
+        // Detect when client disconnects (Stop button clicked)
+        req.on('close', () => {
+            searchAborted = true;
+            originalLog('[Server] Client disconnected - search aborted');
+        });
 
         const params = {
             lpRange: url.searchParams.get('lp') || null,
@@ -115,13 +129,19 @@ async function handleRequest(req, res) {
 
         try {
             const results = await scoutPlayers(params);
-            res.write(`data: ${JSON.stringify({ type: 'complete', results })}\n\n`);
+            if (!searchAborted) {
+                res.write(`data: ${JSON.stringify({ type: 'complete', results })}\n\n`);
+            }
         } catch (err) {
-            res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+            if (!searchAborted && err.message !== 'Search aborted') {
+                res.write(`data: ${JSON.stringify({ type: 'error', message: err.message })}\n\n`);
+            }
         }
 
         sseResponse = null;
-        res.end();
+        if (!res.writableEnded) {
+            res.end();
+        }
         return;
     }
 
@@ -134,6 +154,48 @@ async function handleRequest(req, res) {
             region: CONFIG.region,
             nodeEnv: process.env.NODE_ENV
         }));
+        return;
+    }
+
+    // API: Test Riot API connection (for debugging)
+    if (url.pathname === '/api/test-riot') {
+        try {
+            const testUrl = `https://${CONFIG.region}.api.riotgames.com/lol/league-exp/v4/entries/RANKED_SOLO_5x5/GOLD/IV?page=1`;
+            const response = await fetch(testUrl, {
+                headers: { 'X-Riot-Token': CONFIG.apiKey }
+            });
+
+            const result = {
+                status: response.status,
+                statusText: response.statusText,
+                apiKeyUsed: CONFIG.apiKey ? CONFIG.apiKey.substring(0, 15) + '...' : 'NOT SET',
+                testUrl: testUrl,
+                headers: Object.fromEntries(response.headers.entries())
+            };
+
+            if (response.ok) {
+                const data = await response.json();
+                result.success = true;
+                result.playersReturned = data.length;
+            } else {
+                result.success = false;
+                try {
+                    result.errorBody = await response.text();
+                } catch (e) {
+                    result.errorBody = 'Could not read error body';
+                }
+            }
+
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify(result, null, 2));
+        } catch (err) {
+            res.writeHead(200, { 'Content-Type': 'application/json' });
+            res.end(JSON.stringify({
+                success: false,
+                error: err.message,
+                stack: err.stack
+            }, null, 2));
+        }
         return;
     }
 

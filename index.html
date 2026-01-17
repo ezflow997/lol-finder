@@ -1047,21 +1047,26 @@
                         throw new Error('Invalid file format');
                     }
 
-                    // Merge with existing players (avoid duplicates by puuid)
-                    const existingPuuids = new Set(players.map(p => p.puuid));
+                    // Merge with existing players (match by puuid OR name)
                     let newCount = 0;
                     let updatedCount = 0;
 
                     for (const player of importedPlayers) {
-                        if (!player.puuid) continue;
+                        if (!player.name && !player.puuid) continue;
 
-                        const existingIndex = players.findIndex(p => p.puuid === player.puuid);
+                        // Find existing player by puuid first, then by name
+                        let existingIndex = -1;
+                        if (player.puuid) {
+                            existingIndex = players.findIndex(p => p.puuid === player.puuid);
+                        }
+                        if (existingIndex < 0 && player.name) {
+                            existingIndex = players.findIndex(p => p.name === player.name);
+                        }
+
                         if (existingIndex >= 0) {
-                            // Update existing if imported is newer
-                            if (player.updatedAt > (players[existingIndex].updatedAt || 0)) {
-                                players[existingIndex] = player;
-                                updatedCount++;
-                            }
+                            // Merge: keep existing fields, overwrite with imported data
+                            players[existingIndex] = { ...players[existingIndex], ...player };
+                            updatedCount++;
                         } else {
                             players.push(player);
                             newCount++;

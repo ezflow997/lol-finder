@@ -29,3 +29,6 @@ npm-debug.log*
 
 # Saved exports (user data)
 saved/
+
+# Build output
+dist/

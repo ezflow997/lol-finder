@@ -125,6 +125,18 @@ async function handleRequest(req, res) {
         return;
     }
 
+    // API: Check status (for debugging)
+    if (url.pathname === '/api/status') {
+        res.writeHead(200, { 'Content-Type': 'application/json' });
+        res.end(JSON.stringify({
+            apiKeySet: !!CONFIG.apiKey,
+            apiKeyPrefix: CONFIG.apiKey ? CONFIG.apiKey.substring(0, 15) + '...' : 'NOT SET',
+            region: CONFIG.region,
+            nodeEnv: process.env.NODE_ENV
+        }));
+        return;
+    }
+
     // API: Get LP info
     if (url.pathname === '/api/lpinfo') {
         const lp = parseInt(url.searchParams.get('lp')) || 0;

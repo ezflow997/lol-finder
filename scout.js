@@ -13,7 +13,7 @@ const CONFIG = {
     region: 'na1',               // Platform: na1, euw1, kr, etc.
     regionV5: 'americas',        // Match-V5 routing: americas, europe, asia
     rateLimit: {
-        requestsPerSecond: 20,
+        requestsPerSecond: 10,   // Conservative for serverless (Riot allows 20)
         requestsPer2Minutes: 100
     }
 };

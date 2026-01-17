@@ -229,7 +229,16 @@ async function apiRequest(url) {
                 console.log('\n⏳ Resuming search after rate limit...\n');
             }
 
-            await rateLimiter.sleep(120000);
+            // Wait in smaller intervals to allow abort checking
+            const waitTime = 120000;
+            const checkInterval = 1000;
+            for (let waited = 0; waited < waitTime; waited += checkInterval) {
+                if (global.isSearchAborted && global.isSearchAborted()) {
+                    console.log('\n⛔ Search aborted during rate limit wait');
+                    throw new Error('Search aborted');
+                }
+                await rateLimiter.sleep(checkInterval);
+            }
 
             // Notify UI rate limit ended
             if (global.sendRateLimit) {
@@ -413,15 +422,31 @@ async function scoutPlayers(options = {}) {
     for (const searchQueue of queuesToSearch) {
         if (results.length >= maxPlayers) break;
 
+        // Check if search was aborted
+        if (global.isSearchAborted && global.isSearchAborted()) {
+            console.log('\n⛔ Search aborted by user');
+            break;
+        }
+
         console.log(`\n   === ${searchQueue} ===`);
 
         for (const { tier: searchTier, division: searchDiv } of tierDivisionsToSearch) {
             if (results.length >= maxPlayers) break;
 
+            // Check if search was aborted
+            if (global.isSearchAborted && global.isSearchAborted()) {
+                break;
+            }
+
             console.log(`\n   Searching ${searchTier} ${searchDiv}...`);
             let page = 1;
 
             while (results.length < maxPlayers) {
+                // Check if search was aborted
+                if (global.isSearchAborted && global.isSearchAborted()) {
+                    break;
+                }
+
                 const entries = await getLeagueEntries(searchQueue, searchTier, searchDiv, page);
 
             if (!entries || entries.length === 0) {
@@ -430,6 +455,11 @@ async function scoutPlayers(options = {}) {
 
             for (const entry of entries) {
                 if (results.length >= maxPlayers) break;
+
+                // Check if search was aborted
+                if (global.isSearchAborted && global.isSearchAborted()) {
+                    break;
+                }
 
                 // If LP range specified, filter by total LP
                 if (minLP !== null && maxLP !== null) {

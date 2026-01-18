@@ -632,10 +632,12 @@ async function scoutPlayers(options = {}) {
 
                     // Process other 9 players from the same match if we haven't already
                     const matchId = activity.match?.metadata?.matchId;
+                    console.log(`  🔎 Checking match participants (matchId: ${matchId ? 'found' : 'missing'})`);
                     if (matchId && !processedMatchIds.has(matchId) && results.length < maxPlayers) {
                         processedMatchIds.add(matchId);
 
                         const participants = activity.match.info.participants || [];
+                        console.log(`  🔎 Found ${participants.length} participants in match`);
                         for (const participant of participants) {
                             if (results.length >= maxPlayers) break;
                             if (global.isSearchAborted && global.isSearchAborted()) break;
@@ -675,13 +677,20 @@ async function scoutPlayers(options = {}) {
 
                                 // Skip if summoner lookup failed (e.g., different region)
                                 if (!summoner || !summoner.id) {
+                                    process.stdout.write('s'); // summoner lookup failed
                                     continue;
                                 }
 
                                 // Get their league entries to check rank
                                 const leagueEntries = await getLeagueEntriesBySummonerId(summoner.id);
 
+                                if (!leagueEntries || leagueEntries.length === 0) {
+                                    process.stdout.write('u'); // unranked
+                                    continue;
+                                }
+
                                 // Find their ranked entry that matches our criteria
+                                let participantAdded = false;
                                 for (const leagueEntry of leagueEntries) {
                                     if (results.length >= maxPlayers) break;
 
@@ -695,6 +704,7 @@ async function scoutPlayers(options = {}) {
                                     // Check if within LP range
                                     if (minLP !== null && maxLP !== null) {
                                         if (participantTotalLP === null || participantTotalLP < minLP || participantTotalLP > maxLP) {
+                                            process.stdout.write('r'); // rank out of range
                                             continue;
                                         }
                                     }
@@ -703,8 +713,11 @@ async function scoutPlayers(options = {}) {
                                     const participantTotalGames = leagueEntry.wins + leagueEntry.losses;
                                     const participantWinRate = participantTotalGames > 0 ? leagueEntry.wins / participantTotalGames : 0;
                                     if (participantWinRate < minWinRate) {
+                                        process.stdout.write('w'); // win rate too low
                                         continue;
                                     }
+
+                                    participantAdded = true;
 
                                     seenPuuids.add(participantPuuid);
 

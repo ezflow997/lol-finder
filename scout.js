@@ -673,6 +673,11 @@ async function scoutPlayers(options = {}) {
                                 // Get summoner info to get summoner ID
                                 const summoner = await getSummonerByPuuid(participantPuuid);
 
+                                // Skip if summoner lookup failed (e.g., different region)
+                                if (!summoner || !summoner.id) {
+                                    continue;
+                                }
+
                                 // Get their league entries to check rank
                                 const leagueEntries = await getLeagueEntriesBySummonerId(summoner.id);
 

@@ -630,20 +630,17 @@ async function scoutPlayers(options = {}) {
 
                     console.log(`  ✅ Found: ${player.name} | ${queueShort} ${player.rank} ${player.lp}LP | Active ${activity.minutesAgo}m ago (${activity.gameMode}) ${player.hotStreak ? '🔥' : ''}`);
 
-                    // Process other 9 players from the same match if we haven't already
+                    // Process other 9 players from the same match - no API calls needed
+                    // The match data already contains player names and the game already meets activity condition
                     const matchId = activity.match?.metadata?.matchId;
-                    console.log(`  🔎 Checking match participants (matchId: ${matchId ? 'found' : 'missing'})`);
                     if (matchId && !processedMatchIds.has(matchId) && results.length < maxPlayers) {
                         processedMatchIds.add(matchId);
 
                         const participants = activity.match.info.participants || [];
-                        // Limit participants to check to avoid rate limiting (each requires 2-3 API calls)
-                        const maxParticipantsToCheck = 4;
-                        let participantsChecked = 0;
-                        console.log(`  🔎 Found ${participants.length} participants, checking up to ${maxParticipantsToCheck}`);
+                        console.log(`  🎮 Adding ${participants.length - 1} other players from same match...`);
+
                         for (const participant of participants) {
                             if (results.length >= maxPlayers) break;
-                            if (participantsChecked >= maxParticipantsToCheck) break;
                             if (global.isSearchAborted && global.isSearchAborted()) break;
 
                             const participantPuuid = participant.puuid;
@@ -653,124 +650,42 @@ async function scoutPlayers(options = {}) {
                                 continue;
                             }
 
-                            participantsChecked++;
+                            seenPuuids.add(participantPuuid);
 
-                            // Check cache first for this participant
-                            const cachedParticipant = getCachedPlayer(participantPuuid);
-                            if (cachedParticipant && cachedPlayerMeetsCriteria(cachedParticipant, cacheOptions)) {
-                                seenPuuids.add(participantPuuid);
-                                const cachedAge = Date.now() - cachedParticipant.cachedAt;
-                                const adjustedActiveMinutes = cachedParticipant.lastActiveMinutes + Math.floor(cachedAge / 60000);
+                            // Get name directly from match data - no API call needed
+                            const participantName = participant.riotIdGameName && participant.riotIdTagline
+                                ? `${participant.riotIdGameName}#${participant.riotIdTagline}`
+                                : 'Unknown';
 
-                                const cachedPlayer = {
-                                    ...cachedParticipant,
-                                    lastActiveMinutes: adjustedActiveMinutes,
-                                    fromCache: true,
-                                    updatedAt: cachedParticipant.cachedAt
-                                };
+                            const matchParticipant = {
+                                name: participantName,
+                                region: CONFIG.region,
+                                queue: queueShort,
+                                rank: 'From Match', // We don't know their exact rank without API call
+                                lp: 0,
+                                totalLP: null,
+                                wins: 0,
+                                losses: 0,
+                                winRate: 'N/A',
+                                lastActiveMinutes: activity.minutesAgo,
+                                lastGameMode: activity.gameMode,
+                                hotStreak: false,
+                                veteran: false,
+                                freshBlood: false,
+                                puuid: participantPuuid,
+                                fromCache: false,
+                                fromMatch: true,
+                                champion: participant.championName,
+                                updatedAt: Date.now()
+                            };
 
-                                results.push(cachedPlayer);
-                                if (global.sendPlayerFound) {
-                                    global.sendPlayerFound(cachedPlayer);
-                                }
-                                console.log(`  📦 Match Cache: ${cachedPlayer.name} | ${cachedPlayer.queue} ${cachedPlayer.rank} ${cachedPlayer.lp}LP | Active ${adjustedActiveMinutes}m ago`);
-                                continue;
+                            results.push(matchParticipant);
+
+                            if (global.sendPlayerFound) {
+                                global.sendPlayerFound(matchParticipant);
                             }
 
-                            try {
-                                // Get summoner info to get summoner ID
-                                const summoner = await getSummonerByPuuid(participantPuuid);
-
-                                // Skip if summoner lookup failed (e.g., different region)
-                                if (!summoner || !summoner.id) {
-                                    process.stdout.write('s'); // summoner lookup failed
-                                    continue;
-                                }
-
-                                // Get their league entries to check rank
-                                const leagueEntries = await getLeagueEntriesBySummonerId(summoner.id);
-
-                                if (!leagueEntries || leagueEntries.length === 0) {
-                                    process.stdout.write('u'); // unranked
-                                    continue;
-                                }
-
-                                // Find their ranked entry that matches our criteria
-                                let participantAdded = false;
-                                for (const leagueEntry of leagueEntries) {
-                                    if (results.length >= maxPlayers) break;
-
-                                    // Only check Solo/Duo and Flex queues
-                                    if (leagueEntry.queueType !== 'RANKED_SOLO_5x5' && leagueEntry.queueType !== 'RANKED_FLEX_SR') {
-                                        continue;
-                                    }
-
-                                    const participantTotalLP = toTotalLP(leagueEntry.tier, leagueEntry.rank, leagueEntry.leaguePoints);
-
-                                    // Check if within LP range
-                                    if (minLP !== null && maxLP !== null) {
-                                        if (participantTotalLP === null || participantTotalLP < minLP || participantTotalLP > maxLP) {
-                                            process.stdout.write('r'); // rank out of range
-                                            continue;
-                                        }
-                                    }
-
-                                    // Check win rate
-                                    const participantTotalGames = leagueEntry.wins + leagueEntry.losses;
-                                    const participantWinRate = participantTotalGames > 0 ? leagueEntry.wins / participantTotalGames : 0;
-                                    if (participantWinRate < minWinRate) {
-                                        process.stdout.write('w'); // win rate too low
-                                        continue;
-                                    }
-
-                                    participantAdded = true;
-
-                                    seenPuuids.add(participantPuuid);
-
-                                    let participantName = 'Unknown';
-                                    try {
-                                        const account = await getRiotIdByPuuid(participantPuuid);
-                                        participantName = `${account.gameName}#${account.tagLine}`;
-                                    } catch (err) {
-                                        // Continue with unknown name
-                                    }
-
-                                    const participantQueueShort = leagueEntry.queueType === 'RANKED_SOLO_5x5' ? 'Solo/Duo' : 'Flex';
-                                    const matchParticipant = {
-                                        name: participantName,
-                                        region: CONFIG.region,
-                                        queue: participantQueueShort,
-                                        rank: `${leagueEntry.tier} ${leagueEntry.rank}`,
-                                        lp: leagueEntry.leaguePoints,
-                                        totalLP: participantTotalLP,
-                                        wins: leagueEntry.wins,
-                                        losses: leagueEntry.losses,
-                                        winRate: (participantWinRate * 100).toFixed(1) + '%',
-                                        lastActiveMinutes: activity.minutesAgo,
-                                        lastGameMode: activity.gameMode,
-                                        hotStreak: leagueEntry.hotStreak,
-                                        veteran: leagueEntry.veteran,
-                                        freshBlood: leagueEntry.freshBlood,
-                                        puuid: participantPuuid,
-                                        fromCache: false,
-                                        fromMatch: true,
-                                        updatedAt: Date.now()
-                                    };
-
-                                    cachePlayer(matchParticipant);
-                                    results.push(matchParticipant);
-
-                                    if (global.sendPlayerFound) {
-                                        global.sendPlayerFound(matchParticipant);
-                                    }
-
-                                    console.log(`  🎮 Match: ${matchParticipant.name} | ${participantQueueShort} ${matchParticipant.rank} ${matchParticipant.lp}LP | From same game`);
-                                    break; // Only add once per participant (first matching queue)
-                                }
-                            } catch (err) {
-                                // Silently skip participants we can't fetch
-                                process.stdout.write('m');
-                            }
+                            console.log(`  🎮 Match: ${participantName} (${participant.championName}) | From same game`);
                         }
                     }
                 } else {

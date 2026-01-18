@@ -637,9 +637,13 @@ async function scoutPlayers(options = {}) {
                         processedMatchIds.add(matchId);
 
                         const participants = activity.match.info.participants || [];
-                        console.log(`  🔎 Found ${participants.length} participants in match`);
+                        // Limit participants to check to avoid rate limiting (each requires 2-3 API calls)
+                        const maxParticipantsToCheck = 4;
+                        let participantsChecked = 0;
+                        console.log(`  🔎 Found ${participants.length} participants, checking up to ${maxParticipantsToCheck}`);
                         for (const participant of participants) {
                             if (results.length >= maxPlayers) break;
+                            if (participantsChecked >= maxParticipantsToCheck) break;
                             if (global.isSearchAborted && global.isSearchAborted()) break;
 
                             const participantPuuid = participant.puuid;
@@ -648,6 +652,8 @@ async function scoutPlayers(options = {}) {
                             if (!participantPuuid || participantPuuid === puuid || seenPuuids.has(participantPuuid)) {
                                 continue;
                             }
+
+                            participantsChecked++;
 
                             // Check cache first for this participant
                             const cachedParticipant = getCachedPlayer(participantPuuid);

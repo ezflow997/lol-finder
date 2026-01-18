@@ -131,6 +131,18 @@ const rateLimiter = new RateLimiter(CONFIG.rateLimit.requestsPerSecond);
 // Store current results for display on rate limit
 let currentResults = [];
 
+/**
+ * Shuffle an array in place using Fisher-Yates algorithm
+ */
+function shuffleArray(array) {
+    const shuffled = [...array];
+    for (let i = shuffled.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [shuffled[i], shuffled[j]] = [shuffled[j], shuffled[i]];
+    }
+    return shuffled;
+}
+
 // LP conversion system
 // Each tier = 400 LP, each division = 100 LP
 const TIERS = ['IRON', 'BRONZE', 'SILVER', 'GOLD', 'PLATINUM', 'EMERALD', 'DIAMOND'];
@@ -272,6 +284,22 @@ async function getSummonerById(summonerId) {
 }
 
 /**
+ * Get summoner info by PUUID
+ */
+async function getSummonerByPuuid(puuid) {
+    const url = `https://${CONFIG.region}.api.riotgames.com/lol/summoner/v4/summoners/by-puuid/${puuid}`;
+    return apiRequest(url);
+}
+
+/**
+ * Get league entries for a summoner (ranked info)
+ */
+async function getLeagueEntriesBySummonerId(summonerId) {
+    const url = `https://${CONFIG.region}.api.riotgames.com/lol/league/v4/entries/by-summoner/${summonerId}`;
+    return apiRequest(url);
+}
+
+/**
  * Get summoner by Riot ID (gameName + tagLine)
  */
 async function getSummonerByRiotId(gameName, tagLine) {
@@ -309,7 +337,7 @@ async function getMatchDetails(matchId) {
 
 /**
  * Check how recently a player was active (any game mode)
- * Returns { minutesAgo, gameMode } or null if no recent games
+ * Returns { minutesAgo, gameMode, queueId, match } or null if no recent games
  */
 async function getLastActiveMinutes(puuid) {
     try {
@@ -326,7 +354,7 @@ async function getLastActiveMinutes(puuid) {
         const gameMode = match.info.gameMode; // CLASSIC, ARAM, TUTORIAL, etc.
         const queueId = match.info.queueId;
 
-        return { minutesAgo, gameMode, queueId };
+        return { minutesAgo, gameMode, queueId, match };
     } catch (err) {
         console.error(`Error checking activity for ${puuid}:`, err.message);
         return null;
@@ -413,48 +441,86 @@ async function scoutPlayers(options = {}) {
     }
 
     console.log(`   Queues: ${queuesToSearch.join(', ')}`);
-    console.log(`   Looking for players active within ${activeWithinMinutes} minutes\n`);
+    console.log(`   Looking for players active within ${activeWithinMinutes} minutes`);
+    console.log(`   🎲 Randomized search enabled\n`);
 
     const results = [];
     currentResults = results; // Allow rate limiter to show partial results
     const seenPuuids = new Set(); // Avoid duplicates across queues
+    const processedMatchIds = new Set(); // Avoid processing the same match multiple times
 
-    for (const searchQueue of queuesToSearch) {
-        if (results.length >= maxPlayers) break;
+    // Create all search combinations (queue + tier/division)
+    const searchCombinations = [];
+    for (const q of queuesToSearch) {
+        for (const td of tierDivisionsToSearch) {
+            searchCombinations.push({
+                queue: q,
+                tier: td.tier,
+                division: td.division,
+                triedPages: new Set(),
+                maxPageReached: false,
+                currentMaxPage: 50 // Start with assumption of 50 pages max, will adjust when we hit empty
+            });
+        }
+    }
 
+    // Shuffle the combinations for random starting point
+    const shuffledCombinations = shuffleArray(searchCombinations);
+
+    // Keep searching while we have active combinations and need more players
+    while (results.length < maxPlayers) {
         // Check if search was aborted
         if (global.isSearchAborted && global.isSearchAborted()) {
             console.log('\n⛔ Search aborted by user');
             break;
         }
 
-        console.log(`\n   === ${searchQueue} ===`);
+        // Filter to combinations that still have untried pages
+        const activeCombinations = shuffledCombinations.filter(c => !c.maxPageReached);
+        if (activeCombinations.length === 0) {
+            console.log('\n   All combinations exhausted');
+            break;
+        }
 
-        for (const { tier: searchTier, division: searchDiv } of tierDivisionsToSearch) {
+        // Randomly pick a combination
+        const combo = activeCombinations[Math.floor(Math.random() * activeCombinations.length)];
+        const { queue: searchQueue, tier: searchTier, division: searchDiv } = combo;
+
+        // Pick a random untried page
+        const untriedPages = [];
+        for (let p = 1; p <= combo.currentMaxPage; p++) {
+            if (!combo.triedPages.has(p)) {
+                untriedPages.push(p);
+            }
+        }
+
+        if (untriedPages.length === 0) {
+            combo.maxPageReached = true;
+            continue;
+        }
+
+        const page = untriedPages[Math.floor(Math.random() * untriedPages.length)];
+        combo.triedPages.add(page);
+
+        const queueShortName = searchQueue === 'RANKED_SOLO_5x5' ? 'Solo/Duo' : 'Flex';
+        console.log(`\n   🎲 ${queueShortName} ${searchTier} ${searchDiv} (page ${page})...`);
+
+        const entries = await getLeagueEntries(searchQueue, searchTier, searchDiv, page);
+
+        if (!entries || entries.length === 0) {
+            // This page was empty - adjust max page estimate
+            combo.currentMaxPage = Math.min(combo.currentMaxPage, page - 1);
+            if (combo.currentMaxPage < 1 || combo.triedPages.size >= combo.currentMaxPage) {
+                combo.maxPageReached = true;
+            }
+            continue;
+        }
+
+        // Shuffle entries for random player selection within the page
+        const shuffledEntries = shuffleArray(entries);
+
+        for (const entry of shuffledEntries) {
             if (results.length >= maxPlayers) break;
-
-            // Check if search was aborted
-            if (global.isSearchAborted && global.isSearchAborted()) {
-                break;
-            }
-
-            console.log(`\n   Searching ${searchTier} ${searchDiv}...`);
-            let page = 1;
-
-            while (results.length < maxPlayers) {
-                // Check if search was aborted
-                if (global.isSearchAborted && global.isSearchAborted()) {
-                    break;
-                }
-
-                const entries = await getLeagueEntries(searchQueue, searchTier, searchDiv, page);
-
-            if (!entries || entries.length === 0) {
-                break;
-            }
-
-            for (const entry of entries) {
-                if (results.length >= maxPlayers) break;
 
                 // Check if search was aborted
                 if (global.isSearchAborted && global.isSearchAborted()) {
@@ -563,13 +629,129 @@ async function scoutPlayers(options = {}) {
                     }
 
                     console.log(`  ✅ Found: ${player.name} | ${queueShort} ${player.rank} ${player.lp}LP | Active ${activity.minutesAgo}m ago (${activity.gameMode}) ${player.hotStreak ? '🔥' : ''}`);
+
+                    // Process other 9 players from the same match if we haven't already
+                    const matchId = activity.match?.metadata?.matchId;
+                    if (matchId && !processedMatchIds.has(matchId) && results.length < maxPlayers) {
+                        processedMatchIds.add(matchId);
+
+                        const participants = activity.match.info.participants || [];
+                        for (const participant of participants) {
+                            if (results.length >= maxPlayers) break;
+                            if (global.isSearchAborted && global.isSearchAborted()) break;
+
+                            const participantPuuid = participant.puuid;
+
+                            // Skip the player we just found and any we've already seen
+                            if (!participantPuuid || participantPuuid === puuid || seenPuuids.has(participantPuuid)) {
+                                continue;
+                            }
+
+                            // Check cache first for this participant
+                            const cachedParticipant = getCachedPlayer(participantPuuid);
+                            if (cachedParticipant && cachedPlayerMeetsCriteria(cachedParticipant, cacheOptions)) {
+                                seenPuuids.add(participantPuuid);
+                                const cachedAge = Date.now() - cachedParticipant.cachedAt;
+                                const adjustedActiveMinutes = cachedParticipant.lastActiveMinutes + Math.floor(cachedAge / 60000);
+
+                                const cachedPlayer = {
+                                    ...cachedParticipant,
+                                    lastActiveMinutes: adjustedActiveMinutes,
+                                    fromCache: true,
+                                    updatedAt: cachedParticipant.cachedAt
+                                };
+
+                                results.push(cachedPlayer);
+                                if (global.sendPlayerFound) {
+                                    global.sendPlayerFound(cachedPlayer);
+                                }
+                                console.log(`  📦 Match Cache: ${cachedPlayer.name} | ${cachedPlayer.queue} ${cachedPlayer.rank} ${cachedPlayer.lp}LP | Active ${adjustedActiveMinutes}m ago`);
+                                continue;
+                            }
+
+                            try {
+                                // Get summoner info to get summoner ID
+                                const summoner = await getSummonerByPuuid(participantPuuid);
+
+                                // Get their league entries to check rank
+                                const leagueEntries = await getLeagueEntriesBySummonerId(summoner.id);
+
+                                // Find their ranked entry that matches our criteria
+                                for (const leagueEntry of leagueEntries) {
+                                    if (results.length >= maxPlayers) break;
+
+                                    // Only check Solo/Duo and Flex queues
+                                    if (leagueEntry.queueType !== 'RANKED_SOLO_5x5' && leagueEntry.queueType !== 'RANKED_FLEX_SR') {
+                                        continue;
+                                    }
+
+                                    const participantTotalLP = toTotalLP(leagueEntry.tier, leagueEntry.rank, leagueEntry.leaguePoints);
+
+                                    // Check if within LP range
+                                    if (minLP !== null && maxLP !== null) {
+                                        if (participantTotalLP === null || participantTotalLP < minLP || participantTotalLP > maxLP) {
+                                            continue;
+                                        }
+                                    }
+
+                                    // Check win rate
+                                    const participantTotalGames = leagueEntry.wins + leagueEntry.losses;
+                                    const participantWinRate = participantTotalGames > 0 ? leagueEntry.wins / participantTotalGames : 0;
+                                    if (participantWinRate < minWinRate) {
+                                        continue;
+                                    }
+
+                                    seenPuuids.add(participantPuuid);
+
+                                    let participantName = 'Unknown';
+                                    try {
+                                        const account = await getRiotIdByPuuid(participantPuuid);
+                                        participantName = `${account.gameName}#${account.tagLine}`;
+                                    } catch (err) {
+                                        // Continue with unknown name
+                                    }
+
+                                    const participantQueueShort = leagueEntry.queueType === 'RANKED_SOLO_5x5' ? 'Solo/Duo' : 'Flex';
+                                    const matchParticipant = {
+                                        name: participantName,
+                                        region: CONFIG.region,
+                                        queue: participantQueueShort,
+                                        rank: `${leagueEntry.tier} ${leagueEntry.rank}`,
+                                        lp: leagueEntry.leaguePoints,
+                                        totalLP: participantTotalLP,
+                                        wins: leagueEntry.wins,
+                                        losses: leagueEntry.losses,
+                                        winRate: (participantWinRate * 100).toFixed(1) + '%',
+                                        lastActiveMinutes: activity.minutesAgo,
+                                        lastGameMode: activity.gameMode,
+                                        hotStreak: leagueEntry.hotStreak,
+                                        veteran: leagueEntry.veteran,
+                                        freshBlood: leagueEntry.freshBlood,
+                                        puuid: participantPuuid,
+                                        fromCache: false,
+                                        fromMatch: true,
+                                        updatedAt: Date.now()
+                                    };
+
+                                    cachePlayer(matchParticipant);
+                                    results.push(matchParticipant);
+
+                                    if (global.sendPlayerFound) {
+                                        global.sendPlayerFound(matchParticipant);
+                                    }
+
+                                    console.log(`  🎮 Match: ${matchParticipant.name} | ${participantQueueShort} ${matchParticipant.rank} ${matchParticipant.lp}LP | From same game`);
+                                    break; // Only add once per participant (first matching queue)
+                                }
+                            } catch (err) {
+                                // Silently skip participants we can't fetch
+                                process.stdout.write('m');
+                            }
+                        }
+                    }
                 } else {
                     process.stdout.write('.');
                 }
-            }
-
-            page++;
-        }
         }
     }
 
@@ -748,7 +930,9 @@ if (typeof module !== 'undefined' && module.exports) {
         deepScout,
         findDuosFromHistory,
         getLeagueEntries,
+        getLeagueEntriesBySummonerId,
         getSummonerById,
+        getSummonerByPuuid,
         getSummonerByRiotId,
         getRiotIdByPuuid,
         getMatchIds,

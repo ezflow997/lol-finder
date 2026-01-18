@@ -830,10 +830,7 @@
                             <th class="checkbox-col"><input type="checkbox" id="selectAll" onchange="toggleSelectAll()" title="Select all"></th>
                             <th data-sort="name" onclick="sortTable('name')">Player</th>
                             <th data-sort="rank" onclick="sortTable('rank')">Rank</th>
-                            <th data-sort="lp" onclick="sortTable('lp')">LP</th>
                             <th data-sort="queue" onclick="sortTable('queue')">Queue</th>
-                            <th data-sort="winRate" onclick="sortTable('winRate')">Win Rate</th>
-                            <th data-sort="games" onclick="sortTable('games')">Games</th>
                             <th data-sort="lastActiveMinutes" onclick="sortTable('lastActiveMinutes')">Active</th>
                             <th data-sort="lastGameMode" onclick="sortTable('lastGameMode')">Last Game</th>
                         </tr>
@@ -1343,21 +1340,9 @@
                         aVal = a.totalLP || 0;
                         bVal = b.totalLP || 0;
                         break;
-                    case 'lp':
-                        aVal = a.lp;
-                        bVal = b.lp;
-                        break;
                     case 'queue':
                         aVal = a.queue;
                         bVal = b.queue;
-                        break;
-                    case 'winRate':
-                        aVal = parseFloat(a.winRate);
-                        bVal = parseFloat(b.winRate);
-                        break;
-                    case 'games':
-                        aVal = a.wins + a.losses;
-                        bVal = b.wins + b.losses;
                         break;
                     case 'lastActiveMinutes':
                         aVal = a.lastActiveMinutes;
@@ -1415,8 +1400,6 @@
 
             tbody.innerHTML = filtered.map((player, index) => {
                 const tierClass = player.rank.split(' ')[0].toLowerCase();
-                const wr = parseFloat(player.winRate);
-                const wrClass = wr >= 52 ? 'winrate-good' : wr >= 48 ? 'winrate-ok' : 'winrate-bad';
                 const isNewest = isNewPlayer && index === 0;
                 const opggUrl = getOpggUrl(player);
                 const logUrl = getLeagueOfGraphsUrl(player);
@@ -1437,10 +1420,7 @@
                             </div>
                         </td>
                         <td><span class="rank-badge rank-${tierClass}">${player.rank}</span></td>
-                        <td>${player.lp}</td>
                         <td><span class="queue-badge">${player.queue}</span></td>
-                        <td class="${wrClass}">${player.winRate}</td>
-                        <td>${player.wins}W ${player.losses}L</td>
                         <td class="active-badge">
                             ${player.lastActiveMinutes}m ago
                             ${player.fromCache ? '<span class="cache-badge" title="From cache">📦</span>' : ''}

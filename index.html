@@ -886,13 +886,7 @@
                 if (saved) {
                     const data = JSON.parse(saved);
                     players = data.players || [];
-                    // Adjust active times based on how long ago they were saved
-                    const savedAge = Math.floor((Date.now() - data.savedAt) / 60000);
-                    console.log(`[UI] Saved ${savedAge} minutes ago`);
-                    players = players.map(p => ({
-                        ...p,
-                        lastActiveMinutes: p.lastActiveMinutes + savedAge
-                    }));
+                    // Active time is now calculated dynamically at render time based on updatedAt
                     renderTable();
                     updateUI();
                     console.log(`[UI] Loaded ${players.length} players from storage`);
@@ -1345,8 +1339,10 @@
                         bVal = b.queue;
                         break;
                     case 'lastActiveMinutes':
-                        aVal = a.lastActiveMinutes;
-                        bVal = b.lastActiveMinutes;
+                        // Calculate dynamic active time for accurate sorting
+                        const now = Date.now();
+                        aVal = a.lastActiveMinutes + Math.floor((now - a.updatedAt) / 60000);
+                        bVal = b.lastActiveMinutes + Math.floor((now - b.updatedAt) / 60000);
                         break;
                     case 'lastGameMode':
                         aVal = a.lastGameMode || '';
@@ -1404,6 +1400,9 @@
                 const opggUrl = getOpggUrl(player);
                 const logUrl = getLeagueOfGraphsUrl(player);
                 const updatedAgo = formatUpdatedAgo(player.updatedAt);
+                // Calculate current active time by adding elapsed time since the player was found
+                const elapsedSinceUpdate = Math.floor((Date.now() - player.updatedAt) / 60000);
+                const currentActiveMinutes = player.lastActiveMinutes + elapsedSinceUpdate;
 
                 return `
                     <tr class="${isNewest ? 'new-row' : ''}">
@@ -1422,7 +1421,7 @@
                         <td><span class="rank-badge rank-${tierClass}">${player.rank}</span></td>
                         <td><span class="queue-badge">${player.queue}</span></td>
                         <td class="active-badge">
-                            ${player.lastActiveMinutes}m ago
+                            ${currentActiveMinutes}m ago
                             ${player.fromCache ? '<span class="cache-badge" title="From cache">📦</span>' : ''}
                             <div class="updated-time" title="Last updated by script">↻ ${updatedAgo}</div>
                         </td>

@@ -13,7 +13,9 @@ const CONFIG = {
     region: 'na1',               // Platform: na1, euw1, kr, etc.
     regionV5: 'americas',        // Match-V5 routing: americas, europe, asia
     rateLimit: {
-        requestsPerSecond: 10,   // Conservative for serverless (Riot allows 20)
+        // Dev API key limit: 100 requests per 2 minutes = 0.83/sec
+        // Set to 0.7/sec (~1400ms delay) to stay safely under limit
+        requestsPerSecond: 0.7,
         requestsPer2Minutes: 100
     }
 };

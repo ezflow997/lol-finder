@@ -659,16 +659,17 @@ async function scoutPlayers(options = {}) {
                                 ? `${participant.riotIdGameName}#${participant.riotIdTagline}`
                                 : 'Unknown';
 
+                            // Use same rank as the player we found (they were in same match)
                             const matchParticipant = {
                                 name: participantName,
                                 region: CONFIG.region,
-                                queue: queueShort,
-                                rank: 'From Match', // We don't know their exact rank without API call
-                                lp: 0,
-                                totalLP: null,
-                                wins: 0,
-                                losses: 0,
-                                winRate: 'N/A',
+                                queue: player.queue,
+                                rank: player.rank,
+                                lp: player.lp,
+                                totalLP: player.totalLP,
+                                wins: player.wins,
+                                losses: player.losses,
+                                winRate: player.winRate,
                                 lastActiveMinutes: activity.minutesAgo,
                                 lastGameMode: activity.gameMode,
                                 hotStreak: false,
@@ -687,7 +688,7 @@ async function scoutPlayers(options = {}) {
                                 global.sendPlayerFound(matchParticipant);
                             }
 
-                            console.log(`  🎮 Match: ${participantName} (${participant.championName}) | From same game`);
+                            console.log(`  🎮 Match: ${participantName} (${participant.championName}) | ${player.rank} | From same game`);
                         }
                     }
                 } else {

@@ -74,7 +74,7 @@ async function handleRequest(req, res) {
         return;
     }
 
-    // API: Set config (region only - API key is from environment)
+    // API: Set config (region and optional API key override)
     if (url.pathname === '/api/config' && req.method === 'POST') {
         let body = '';
         req.on('data', chunk => body += chunk);
@@ -82,6 +82,10 @@ async function handleRequest(req, res) {
             const data = JSON.parse(body);
             if (data.region) CONFIG.region = data.region;
             if (data.regionV5) CONFIG.regionV5 = data.regionV5;
+            if (data.apiKey) {
+                CONFIG.apiKey = data.apiKey;
+                originalLog('API key overridden by user:', data.apiKey.substring(0, 15) + '...');
+            }
             res.writeHead(200, { 'Content-Type': 'application/json' });
             res.end(JSON.stringify({ success: true }));
         });

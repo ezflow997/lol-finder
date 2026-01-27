@@ -889,11 +889,6 @@
             }
         }
 
-        // Add event listener for API key input
-        document.addEventListener('DOMContentLoaded', () => {
-            loadApiKey();
-            document.getElementById('apiKey').addEventListener('change', saveApiKey);
-        });
 
         // Save players to localStorage
         function savePlayers() {
@@ -1515,6 +1510,10 @@
         loadPlayers();
         // Ensure table renders even if no saved players (shows empty state)
         if (players.length === 0) renderTable();
+
+        // Load saved API key and set up listener
+        loadApiKey();
+        document.getElementById('apiKey').addEventListener('change', saveApiKey);
 
         // Debug: expose test function for rate limit indicator
         window.testRateLimit = function(seconds = 10) {
